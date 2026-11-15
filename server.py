@@ -22,6 +22,9 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 
+import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 ROOT = pathlib.Path(__file__).parent
 LOGS = ROOT / "logs"
 SR = 16000
@@ -164,7 +167,9 @@ class Pipeline:
     def _load_models(self):
         from faster_whisper import WhisperModel
         from transformers import MarianMTModel, MarianTokenizer
-
+        import torch
+        torch.set_num_threads(1)   # avoids thread clash with CTranslate2 on Intel Macs
+        
         a = self.args
         print(f"Loading Whisper '{a.model}' ({a.device}, {a.compute})…")
         self.asr = WhisperModel(a.model, device=a.device, compute_type=a.compute)
