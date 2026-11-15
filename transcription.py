@@ -144,7 +144,8 @@ class Pipeline:
 
     def _load_model(self):
         from faster_whisper import WhisperModel
-
+        import torch
+        torch.set_num_threads(1)   # avoids thread clash with CTranslate2 on Intel Macs
         args = self.args
         print(f"Loading Whisper '{args.model}' ({args.device}, {args.compute})…")
         self.asr = WhisperModel(args.model, device=args.device, compute_type=args.compute)

@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from transcription import Pipeline
 
+import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 ROOT = pathlib.Path(__file__).parent
 ARGS = None
 LOOP = None
