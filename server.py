@@ -41,9 +41,9 @@ def set_status(status, text=""):
     emit({"type": "status", "state": status, "text": text})
 
 
-def publish_transcript(text):
+def publish_caption(german, english):
     if not STATE["paused"]:
-        emit({"type": "transcript", "text": text})
+        emit({"type": "caption", "de": german, "en": english})
 
 
 @asynccontextmanager
@@ -77,7 +77,7 @@ async def start_transcription():
         return {"state": STATE["status"]}
 
     set_status("loading", "Loading Whisper model…")
-    PIPE = Pipeline(ARGS, publish_transcript, set_status)
+    PIPE = Pipeline(ARGS, publish_caption, set_status)
     PIPE.start()
     return {"state": "loading"}
 

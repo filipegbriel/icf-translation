@@ -11,7 +11,7 @@ RUN pip install torch torchaudio --index-url https://download.pytorch.org/whl/cp
 COPY requirements-docker.txt .
 RUN pip install -r requirements-docker.txt
 
-COPY server.py transcription.py glossary.json ./
+COPY server.py transcription.py translation.py glossary.json ./
 COPY static ./static
 
 EXPOSE 8000

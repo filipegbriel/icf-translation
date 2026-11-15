@@ -30,6 +30,7 @@ def load_glossary():
             print(f"glossary.json error: {error}", file=sys.stderr)
     for key, default in (("asr_prompt", ""), ("de_fixes", {}), ("ignore", [])):
         glossary.setdefault(key, default)
+    glossary.setdefault("en_fixes", {})
     return glossary
 
 
@@ -90,9 +91,9 @@ def file_source(path, speed, stop):
 
 
 class Pipeline:
-    def __init__(self, args, on_transcript, on_status):
+    def __init__(self, args, on_caption, on_status):
         self.args = args
-        self.on_transcript = on_transcript
+        self.on_caption = on_caption
         self.on_status = on_status
         self.segments = queue.Queue()
         self.stop = threading.Event()
@@ -114,6 +115,11 @@ class Pipeline:
         failed = False
         try:
             self._load_model()
+            self.on_status("loading", "Loading German-English translation model…")
+            from translation import Translator
+            glossary = load_glossary()
+            translation_device = "cuda" if self.args.device == "cuda" else "cpu"
+            self.translator = Translator(translation_device, glossary["en_fixes"])
             self.asr_thread = threading.Thread(target=self._asr_loop, daemon=True)
             self.asr_thread.start()
             self.on_status("ready", "Listening for German speech")
@@ -205,18 +211,24 @@ class Pipeline:
             return
         german = apply_fixes(german, glossary["de_fixes"])
 
+        translation_started = time.time()
+        english = self.translator.translate(german)
+        translation_seconds = time.time() - translation_started
+
         now = datetime.datetime.now()
         latency = time.time() - captured_at
         duration = len(audio) / SR
         print(f"[{now:%H:%M:%S}] audio {duration:.1f}s | asr {asr_seconds:.1f}s | "
-              f"delay after speech {latency:.1f}s\n  DE: {german}")
-        self.on_transcript(german)
+              f"translation {translation_seconds:.1f}s | delay after speech {latency:.1f}s\n"
+              f"  DE: {german}\n  EN: {english}")
+        self.on_caption(german, english)
 
         LOGS.mkdir(exist_ok=True)
         with open(LOGS / f"{now:%Y-%m-%d}.jsonl", "a", encoding="utf-8") as log_file:
             log_file.write(json.dumps({
-                "ts": now.isoformat(timespec="seconds"), "de": german,
+                "ts": now.isoformat(timespec="seconds"), "de": german, "en": english,
                 "audio_s": round(duration, 2), "asr_s": round(asr_seconds, 2),
+                "translation_s": round(translation_seconds, 2),
                 "delay_s": round(latency, 2)}, ensure_ascii=False) + "\n")
         if self.args.save_audio:
             save_wav(LOGS / "audio" / f"{now:%Y-%m-%d_%H-%M-%S}.wav", audio)

@@ -1,5 +1,8 @@
 # torch/torchaudio are installed separately in the Dockerfile (CPU or CUDA build).
 # Inside the Linux container there is no Intel-Mac restriction, so nothing is pinned.
+transformers==4.44.2
+sentencepiece
+sacremoses
 faster-whisper
 silero-vad
 sounddevice

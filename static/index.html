@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>German Transcript</title>
+<title>German-English Captions</title>
 <style>
   :root {
     --bg: #000;
@@ -30,8 +30,11 @@
 
   .cap {
     margin: 0 0 .4em;
+    display: flex;
+    flex-direction: column;
+    gap: .12em;
     font-size: var(--fs);
-    line-height: 1.22;
+    line-height: 1.18;
     font-weight: 600;
     text-wrap: pretty;
     opacity: 0;
@@ -40,6 +43,9 @@
   }
   .cap.in { opacity: 1; transform: none; }
   .cap.old { color: var(--dim); }
+  .cap p { margin: 0; }
+  .cap .de { color: var(--dim); font-size: .48em; font-weight: 500; }
+  .cap .en { color: inherit; }
 
   #hud {
     position: fixed; right: 2vw; bottom: 1.5vh;
@@ -137,15 +143,21 @@
     }
   }
 
-  function addCaption(text) {
+  function addCaption(german, english) {
     if (paused) return;
     stage.classList.remove('idle');
     stage.querySelectorAll('.cap').forEach(el => el.classList.add('old'));
-    const p = document.createElement('p');
-    p.className = 'cap';
-    p.textContent = text;
-    stage.appendChild(p);
-    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('in')));
+    const caption = document.createElement('div');
+    caption.className = 'cap';
+    const de = document.createElement('p');
+    de.className = 'de';
+    de.textContent = german;
+    const en = document.createElement('p');
+    en.className = 'en';
+    en.textContent = english;
+    caption.append(de, en);
+    stage.appendChild(caption);
+    requestAnimationFrame(() => requestAnimationFrame(() => caption.classList.add('in')));
     while (stage.children.length > MAX_LINES) stage.removeChild(stage.firstChild);
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => stage.classList.add('idle'), IDLE_MS);
@@ -166,7 +178,7 @@
     ws.onclose = () => { setHud(); setControls(); setTimeout(connect, 1000); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === 'transcript') addCaption(m.text);
+      if (m.type === 'caption') addCaption(m.de, m.en);
       else if (m.type === 'pause') setPaused(m.paused);
       else if (m.type === 'status') { status = m; setHud(); setControls(); }
     };
@@ -201,7 +213,7 @@
     } else if (e.key === 'c') {
       fetch('/api/toggle', {method: 'POST'});
     } else if (e.key === 't') {
-      addCaption('Test: The Lord is my shepherd, I shall not want. Please check that this text is readable from the back row.');
+      addCaption('Der Herr ist mein Hirte.', 'The Lord is my shepherd.');
     }
   });
   document.addEventListener('mousemove', () => {

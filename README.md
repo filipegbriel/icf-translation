@@ -1,8 +1,8 @@
-# German speech transcription
+# Live German-to-English captions
 
-The app has two parts: `server.py` serves the control/caption page, and `transcription.py` handles audio input, voice detection, and German speech recognition. Start the server in a terminal, open the page, then click **Start listening**. The web server stays running when you click **Stop**.
+The app has three parts: `server.py` serves the control/caption page, `transcription.py` handles audio input, voice detection, and German speech recognition, and `translation.py` translates each German segment into English. Start the server in a terminal, open the page, then click **Start listening**. The page shows the German transcript above the English translation. The web server stays running when you click **Stop**.
 
-Transcription runs locally. Internet access is needed the first time to download the selected Whisper model.
+Speech recognition and translation run locally. Internet access is needed the first time to download the Whisper and German-English translation models.
 
 ## Install for local use
 
@@ -31,7 +31,7 @@ cd /home/kaique/Documents/git/icf-translation
 python server.py --host 127.0.0.1 --port 8000 --file samples/test.wav
 ```
 
-Open http://127.0.0.1:8000 and click **Start listening**. The recording plays at its normal speed through the same transcription pipeline as a microphone. When it ends, the page returns to **Stopped**. To stop the server itself, press `Ctrl+C` in its terminal.
+Open http://127.0.0.1:8000 and click **Start listening**. The first start downloads/loads both models and can take a few minutes. The recording plays at its normal speed through the same recognition and translation pipeline as a microphone. When it ends, the page returns to **Stopped**. To stop the server itself, press `Ctrl+C` in its terminal.
 
 ## Use a microphone
 
@@ -48,8 +48,8 @@ Replace `2` with the index for your microphone or sound-board interface. Open ht
 
 | Control | Action |
 |---|---|
-| Start listening | Start audio capture and transcription |
-| Stop | Stop capture and transcription without stopping the web server |
+| Start listening | Start audio capture, German transcription, and English translation |
+| Stop | Stop audio processing without stopping the web server |
 | `f` | Toggle full screen |
 | `+` / `-` | Increase or decrease text size; the setting is remembered |
 | `c` | Hide or show captions |
@@ -70,9 +70,9 @@ For an OBS browser source, use http://127.0.0.1:8000/overlay. It hides the opera
 | `--host` | `127.0.0.1` | Use `0.0.0.0` to allow other devices on the network to open the page. |
 | `--port` | `8000` | Web server port. |
 
-Shorter segments can reduce the time before a caption appears, but may split a sentence and affect recognition. If the warning `transcription is falling behind real time` appears, try `--model tiny` or run on a GPU. The first model load/download also takes extra time.
+Shorter segments can reduce the time before a caption appears, but may split a sentence and affect recognition or translation. Translation adds processing time after Whisper. If the warning `transcription is falling behind real time` appears, try `--model tiny` or run on a GPU. The first model load/download also takes extra time.
 
-Transcripts are emitted by speech segment, not word by word. This step does not translate or speak the transcript. JSONL transcripts and timing data are written to `logs/YYYY-MM-DD.jsonl`. `glossary.json` supports `de_fixes` for recognized-text corrections and `ignore` for phrases to drop; it is re-read for each segment.
+Captions are emitted by speech segment, not word by word. Translation is generated one segment at a time; it may be less natural when a segment ends in the middle of a sentence. This step does not speak the English output yet. JSONL German/English text and timing data are written to `logs/YYYY-MM-DD.jsonl`. `glossary.json` supports `de_fixes` for recognized-text corrections, `en_fixes` for translation corrections, and `ignore` for phrases to drop; it is re-read for each segment.
 
 ## Docker CPU test
 
@@ -83,7 +83,7 @@ cd /home/kaique/Documents/git/icf-translation
 docker compose --profile cpu up --build
 ```
 
-Open http://127.0.0.1:8000 and click **Start listening**. The recording is replayed each time transcription starts. Press `Ctrl+C` in the Compose terminal to stop the container, or use `docker compose --profile cpu down` from another terminal.
+Open http://127.0.0.1:8000 and click **Start listening**. The recording is replayed each time processing starts. Press `Ctrl+C` in the Compose terminal to stop the container, or use `docker compose --profile cpu down` from another terminal. Both models are cached in the mounted `hf-cache` volume.
 
 If Docker reports permission denied for `/var/run/docker.sock`, your account cannot access the Docker daemon. On Ubuntu, an administrator can add your account to the `docker` group with `sudo usermod -aG docker "$USER"`; log out and back in for the new group to apply. Membership in that group grants root-equivalent privileges.
 
