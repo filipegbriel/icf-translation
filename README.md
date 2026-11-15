@@ -1,111 +1,120 @@
-# Church captions: German → English, live
+# German speech transcription
 
-Audio → Silero VAD → faster-whisper (German) → Opus-MT (de→en) → WebSocket → full-screen caption page.
-Everything runs locally; the internet is only needed once, to download the models.
+The app has two parts: `server.py` serves the control/caption page, and `transcription.py` handles audio input, voice detection, and German speech recognition. Start the server in a terminal, open the page, then click **Start listening**. The web server stays running when you click **Stop**.
 
-## 1. Install (once)
+Transcription runs locally. Internet access is needed the first time to download the selected Whisper model.
 
-Use Python 3.11 (3.10–3.12 work).
+## Install for local use
 
-```bash
-cd church-captions
-python3 -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-If pip complains about torch or numpy on your Mac, send me the error. Those pins are the usual trouble spot on Intel Macs.
-
-## 2. Test with a recording (no microphone needed)
+Use Python 3.11 (3.10–3.12 work). From the project directory:
 
 ```bash
-python server.py --file test.wav
+cd icf-translation
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Open http://localhost:8000 in Chrome and press **f** for full screen. The first start downloads the models (a few hundred MB to 1.5 GB) and takes a minute. The recording is played in real time, so you see what a live service would look like. The terminal shows, per segment:
-
-- `asr` – seconds Whisper needed. It must stay well below the `audio` length.
-- `delay after speech` – how long the audience waits after the speaker pauses.
-- the German text and the English translation.
-
-If you see `WARNING: transcription is falling behind`, use a smaller model (`--model base`) or wait for the GPU machine.
-
-## 3. Live from a microphone or the sound board
+On Debian/Ubuntu, install PortAudio for microphone access:
 
 ```bash
-python server.py --list-devices       # find the index of your input
-python server.py --input 2            # use that index
+sudo apt install libportaudio2
 ```
 
-macOS asks for microphone permission for Terminal the first time. Later, use the USB interface fed from the sound board (speaker mic bus only).
+## Test the provided recording
 
-## 4. Keys on the caption page
+Make sure `samples/test.wav` exists, then start the server with the recording as its input:
 
-| Key | Action |
+```bash
+cd /home/kaique/Documents/git/icf-translation
+python server.py --host 127.0.0.1 --port 8000 --file samples/test.wav
+```
+
+Open http://127.0.0.1:8000 and click **Start listening**. The recording plays at its normal speed through the same transcription pipeline as a microphone. When it ends, the page returns to **Stopped**. To stop the server itself, press `Ctrl+C` in its terminal.
+
+## Use a microphone
+
+List the audio devices, then start the web server with the input device index. Keep this terminal open:
+
+```bash
+python server.py --list-devices
+python server.py --host 127.0.0.1 --port 8000 --input 2
+```
+
+Replace `2` with the index for your microphone or sound-board interface. Open http://127.0.0.1:8000 and click **Start listening**. The server process captures audio directly from its host. On macOS, grant microphone permission to Terminal. Docker Desktop on macOS cannot pass the Mac microphone through to a Linux container; run the server natively for Mac microphone use.
+
+## Page controls
+
+| Control | Action |
 |---|---|
-| f | full screen |
-| + / - | text size (remembered) |
-| c | captions on/off (blanks every connected screen) |
-| t | show a test line, to check readability from the back row |
+| Start listening | Start audio capture and transcription |
+| Stop | Stop capture and transcription without stopping the web server |
+| `f` | Toggle full screen |
+| `+` / `-` | Increase or decrease text size; the setting is remembered |
+| `c` | Hide or show captions |
+| `t` | Show a sample line to check readability |
 
-For an OBS browser source, use `http://localhost:8000/overlay` (transparent background, outlined text).
+For an OBS browser source, use http://127.0.0.1:8000/overlay. It hides the operator controls and uses a transparent background with outlined text.
 
-## 5. Useful options
+## Performance options
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--model` | small | `base`, `small`, `medium`, `large-v3-turbo` |
-| `--device` | cpu | `cuda` on an NVIDIA GPU |
-| `--beam` | 1 | higher = a bit more accurate, slower |
-| `--silence-ms` | 600 | pause length that ends a segment; lower = faster captions, more fragments |
-| `--max-seg` | 10 | longest segment before a forced cut |
-| `--save-audio` | off | keep every segment as wav in `logs/audio/` for review |
-| `--host 0.0.0.0` | 127.0.0.1 | let other devices on the network open the page |
+| `--model` | `base` | Whisper model. `tiny` is faster; `small` or larger may improve recognition but need more processing time. |
+| `--device` | `cpu` | Use `cuda` on a supported NVIDIA GPU. |
+| `--beam` | `1` | Higher values may improve accuracy but run slower. |
+| `--silence-ms` | `400` | Silence duration that ends a speech segment. Higher values wait longer and can join phrases. |
+| `--max-seg` | `5` | Force a segment boundary after this many seconds. |
+| `--save-audio` | off | Save each recognized audio segment under `logs/audio/`. |
+| `--host` | `127.0.0.1` | Use `0.0.0.0` to allow other devices on the network to open the page. |
+| `--port` | `8000` | Web server port. |
 
-## 6. Weekly improvement loop
+Shorter segments can reduce the time before a caption appears, but may split a sentence and affect recognition. If the warning `transcription is falling behind real time` appears, try `--model tiny` or run on a GPU. The first model load/download also takes extra time.
 
-- `logs/YYYY-MM-DD.jsonl` has the German, English, timings and timestamps for every caption.
-- Fix recurring mistakes in `glossary.json`; it is reloaded on every segment, with no restart.
-  - `asr_prompt`: words Whisper should expect (names, Bible books, terms).
-  - `de_fixes`: corrections applied to the German text before translation.
-  - `en_fixes`: corrections applied to the English output.
-  - `ignore`: phrases Whisper invents on silence; matching segments are dropped.
+Transcripts are emitted by speech segment, not word by word. This step does not translate or speak the transcript. JSONL transcripts and timing data are written to `logs/YYYY-MM-DD.jsonl`. `glossary.json` supports `de_fixes` for recognized-text corrections and `ignore` for phrases to drop; it is re-read for each segment.
 
-## 7. Moving to the GPU PC
+## Docker CPU test
 
-Same code. Install the normal CUDA build of PyTorch (no pins), then:
+The CPU Compose profile uses `samples/test.wav` by default. Stop any local server using port 8000 first, then run:
 
 ```bash
-python server.py --device cuda --model large-v3-turbo
-```
-
-## Known limits of this first version
-
-- Captions appear per spoken segment (after a pause or at most every `--max-seg` seconds), not word by word. That is deliberate: German sentences need their verb before they can be translated well.
-- A forced cut in the middle of a long sentence can split it awkwardly.
-- Scripture quotes are translated like normal speech. Showing the official English verse instead is a good next step.
-
-## Docker
-
-Two images are provided: `Dockerfile` (CPU, any machine) and `Dockerfile.gpu` (NVIDIA GPU, Linux).
-
-```bash
-# test on the MacBook: put a recording in samples/test.wav, then
+cd /home/kaique/Documents/git/icf-translation
 docker compose --profile cpu up --build
-# open http://localhost:8000
 ```
 
-On the final Linux GPU PC (needs Docker plus the NVIDIA Container Toolkit):
+Open http://127.0.0.1:8000 and click **Start listening**. The recording is replayed each time transcription starts. Press `Ctrl+C` in the Compose terminal to stop the container, or use `docker compose --profile cpu down` from another terminal.
+
+If Docker reports permission denied for `/var/run/docker.sock`, your account cannot access the Docker daemon. On Ubuntu, an administrator can add your account to the `docker` group with `sudo usermod -aG docker "$USER"`; log out and back in for the new group to apply. Membership in that group grants root-equivalent privileges.
+
+## Docker with an NVIDIA GPU
+
+The GPU profile is intended for a Linux host with Docker Compose, the NVIDIA Container Toolkit, and an NVIDIA GPU. It uses the microphone or sound interface exposed to the container through `/dev/snd`:
 
 ```bash
-docker compose --profile gpu up -d --build
-docker compose --profile gpu logs -f
+docker compose --profile gpu up --build
 ```
 
-Notes:
-- **No microphone on a Mac.** Docker Desktop runs a hidden Linux VM and cannot pass the Mac's audio input through. On the Mac, Docker is for file tests only; for live mic tests run `server.py` natively (section 3).
-- On Linux the GPU service gets the sound card through `/dev/snd`. Use a USB interface that the desktop's sound server does not already hold open, and find its index with
-  `docker compose --profile gpu run --rm captions-gpu python3 server.py --list-devices`, then start with `CAPTIONS_ARGS="--input N"`.
-- Models are cached in the `hf-cache` volume, so rebuilding does not download them again.
-- `logs/` and `glossary.json` stay on the host, so the weekly review and glossary edits work as before.
-- `restart: unless-stopped` brings the service back after a reboot or crash.
+To list devices inside the container, use:
+
+```bash
+docker compose --profile gpu run --rm captions-gpu python3 server.py --list-devices
+```
+
+Then pass the selected index on startup, for example:
+
+```bash
+CAPTIONS_ARGS="--input 2" docker compose --profile gpu up --build
+```
+
+Use `CAPTIONS_ARGS="--file /samples/test.wav"` for a file test instead. Models are cached in the `hf-cache` volume; logs and the glossary remain in the project directory.
+
+## Port already in use
+
+If the server reports `Address already in use`, find the process using port 8000:
+
+```bash
+ss -ltnp 'sport = :8000'
+```
+
+Stop that server with `Ctrl+C` in its terminal. If its terminal is unavailable, send `kill -INT PID`, replacing `PID` with the process ID reported by the command. Alternatively, start this server on another port with `--port 8001` and open http://127.0.0.1:8001.

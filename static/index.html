@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Captions</title>
+<title>German Transcript</title>
 <style>
   :root {
     --bg: #000;
@@ -44,13 +44,35 @@
   #hud {
     position: fixed; right: 2vw; bottom: 1.5vh;
     font-size: 2.2vh; color: var(--dim);
+    max-width: 52vw;
+    text-align: right;
   }
   #hud:empty { display: none; }
+
+  #controls {
+    position: fixed; left: 2vw; bottom: 1.5vh; z-index: 2;
+    display: flex; gap: .6rem; cursor: default;
+  }
+  #controls button {
+    min-width: 9rem; min-height: 2.8rem; padding: .55rem .85rem;
+    border: 1px solid var(--fg); border-radius: 4px;
+    background: var(--fg); color: #111;
+    font: 600 1rem "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+    cursor: pointer;
+  }
+  #controls #stop { background: transparent; color: var(--fg); }
+  #controls button:disabled { opacity: .48; cursor: not-allowed; }
 
   /* OBS / livestream overlay: /overlay or /?overlay=1 */
   body.overlay { background: transparent; --fs: 5.2vh; }
   body.overlay #stage { padding-bottom: 6vh; }
   body.overlay .cap { text-shadow: 0 0 .15em #000, 0 0 .3em #000, 0 .04em .12em #000; }
+  body.overlay #controls, body.overlay #hud { display: none; }
+
+  @media (max-width: 520px) {
+    #controls button { min-width: 0; }
+    #hud { max-width: 48vw; font-size: 3.2vw; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .cap, #stage { transition: none; transform: none; }
@@ -60,14 +82,20 @@
 <body>
 <div id="stage"></div>
 <div id="hud">Connecting…</div>
+<div id="controls" aria-label="Transcription controls">
+  <button id="start" type="button"><span aria-hidden="true">▶</span> Start listening</button>
+  <button id="stop" type="button" disabled><span aria-hidden="true">■</span> Stop</button>
+</div>
 
 <script>
 (() => {
   const stage = document.getElementById('stage');
   const hud = document.getElementById('hud');
+  const startButton = document.getElementById('start');
+  const stopButton = document.getElementById('stop');
   const MAX_LINES = 8;        // caption blocks kept in the page
   const IDLE_MS = 14000;      // fade everything out after this much silence
-  let paused = false, idleTimer = null, status = {state: 'loading', text: ''};
+  let paused = false, idleTimer = null, status = {state: 'stopped', text: ''};
 
   if (new URLSearchParams(location.search).has('overlay')) document.body.classList.add('overlay');
 
@@ -83,9 +111,30 @@
   function setHud() {
     if (paused) { hud.textContent = ''; return; }
     if (!ws || ws.readyState !== 1) hud.textContent = 'Reconnecting…';
-    else if (status.state === 'loading') hud.textContent = status.text || 'Loading models…';
+    else if (status.state === 'stopped') hud.textContent = 'Stopped';
     else if (status.state === 'error') hud.textContent = status.text;
-    else hud.textContent = '';
+    else hud.textContent = status.text;
+  }
+
+  function setControls() {
+    const connected = ws && ws.readyState === 1;
+    const active = ['loading', 'ready', 'stopping'].includes(status.state);
+    startButton.disabled = !connected || active;
+    stopButton.disabled = !connected || !active;
+  }
+
+  async function requestTranscription(action) {
+    try {
+      const response = await fetch('/api/' + action, {method: 'POST'});
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.detail || 'Could not ' + action + ' transcription');
+      }
+    } catch (error) {
+      status = {state: 'error', text: error.message};
+      setHud();
+      setControls();
+    }
   }
 
   function addCaption(text) {
@@ -113,16 +162,29 @@
   let ws = null;
   function connect() {
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-    ws.onopen = setHud;
-    ws.onclose = () => { setHud(); setTimeout(connect, 1000); };
+    ws.onopen = () => { setHud(); setControls(); };
+    ws.onclose = () => { setHud(); setControls(); setTimeout(connect, 1000); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === 'caption') addCaption(m.en);
+      if (m.type === 'transcript') addCaption(m.text);
       else if (m.type === 'pause') setPaused(m.paused);
-      else if (m.type === 'status') { status = m; setHud(); }
+      else if (m.type === 'status') { status = m; setHud(); setControls(); }
     };
   }
   connect();
+
+  startButton.addEventListener('click', () => {
+    status = {state: 'loading', text: 'Starting transcription…'};
+    setHud();
+    setControls();
+    requestTranscription('start');
+  });
+  stopButton.addEventListener('click', () => {
+    status = {state: 'stopping', text: 'Stopping transcription…'};
+    setHud();
+    setControls();
+    requestTranscription('stop');
+  });
 
   // ---- keyboard (operator at the computer)
   //  f = fullscreen   + / - = text size   c = captions on/off   t = test line

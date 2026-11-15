@@ -4,9 +4,6 @@
 numpy<2
 torch==2.2.2
 torchaudio==2.2.2
-transformers==4.44.2
-sentencepiece
-sacremoses
 faster-whisper
 silero-vad
 sounddevice
