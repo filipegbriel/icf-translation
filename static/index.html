@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Captions</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f6f1d3;      /* pale warm yellow: high contrast, easier on the eyes than pure white */
+    --dim: #8d897a;
+    --fs: 7.5vh;        /* caption size; change live with + and - */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); cursor: none; }
+  body {
+    font-family: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    padding: 4vh 6vw;
+    transition: opacity 1.2s ease;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+  }
+  #stage.idle { opacity: 0; }
+
+  .cap {
+    margin: 0 0 .4em;
+    font-size: var(--fs);
+    line-height: 1.22;
+    font-weight: 600;
+    text-wrap: pretty;
+    opacity: 0;
+    transform: translateY(.3em);
+    transition: opacity .35s ease, transform .25s ease, color .6s ease;
+  }
+  .cap.in { opacity: 1; transform: none; }
+  .cap.old { color: var(--dim); }
+
+  #hud {
+    position: fixed; right: 2vw; bottom: 1.5vh;
+    font-size: 2.2vh; color: var(--dim);
+  }
+  #hud:empty { display: none; }
+
+  /* OBS / livestream overlay: /overlay or /?overlay=1 */
+  body.overlay { background: transparent; --fs: 5.2vh; }
+  body.overlay #stage { padding-bottom: 6vh; }
+  body.overlay .cap { text-shadow: 0 0 .15em #000, 0 0 .3em #000, 0 .04em .12em #000; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cap, #stage { transition: none; transform: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="hud">Connecting…</div>
+
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  const hud = document.getElementById('hud');
+  const MAX_LINES = 8;        // caption blocks kept in the page
+  const IDLE_MS = 14000;      // fade everything out after this much silence
+  let paused = false, idleTimer = null, status = {state: 'loading', text: ''};
+
+  if (new URLSearchParams(location.search).has('overlay')) document.body.classList.add('overlay');
+
+  // remembered text size
+  const root = document.documentElement;
+  let fsScale = 1;
+  try { fsScale = parseFloat(localStorage.getItem('fsScale')) || 1; } catch (e) {}
+  const baseFs = () => parseFloat(getComputedStyle(root).getPropertyValue('--fs')) || 7.5;
+  const defaultFs = parseFloat(getComputedStyle(root).getPropertyValue('--fs')) || 7.5;
+  function applyScale() { root.style.setProperty('--fs', (defaultFs * fsScale).toFixed(2) + 'vh'); }
+  applyScale();
+
+  function setHud() {
+    if (paused) { hud.textContent = ''; return; }
+    if (!ws || ws.readyState !== 1) hud.textContent = 'Reconnecting…';
+    else if (status.state === 'loading') hud.textContent = status.text || 'Loading models…';
+    else if (status.state === 'error') hud.textContent = status.text;
+    else hud.textContent = '';
+  }
+
+  function addCaption(text) {
+    if (paused) return;
+    stage.classList.remove('idle');
+    stage.querySelectorAll('.cap').forEach(el => el.classList.add('old'));
+    const p = document.createElement('p');
+    p.className = 'cap';
+    p.textContent = text;
+    stage.appendChild(p);
+    requestAnimationFrame(() => requestAnimationFrame(() => p.classList.add('in')));
+    while (stage.children.length > MAX_LINES) stage.removeChild(stage.firstChild);
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => stage.classList.add('idle'), IDLE_MS);
+  }
+
+  function setPaused(p) {
+    paused = p;
+    stage.style.visibility = p ? 'hidden' : 'visible';
+    if (p) stage.innerHTML = '';
+    setHud();
+  }
+
+  // ---- WebSocket with automatic reconnect
+  let ws = null;
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+    ws.onopen = setHud;
+    ws.onclose = () => { setHud(); setTimeout(connect, 1000); };
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'caption') addCaption(m.en);
+      else if (m.type === 'pause') setPaused(m.paused);
+      else if (m.type === 'status') { status = m; setHud(); }
+    };
+  }
+  connect();
+
+  // ---- keyboard (operator at the computer)
+  //  f = fullscreen   + / - = text size   c = captions on/off   t = test line
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'f') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    } else if (e.key === '+' || e.key === '=') {
+      fsScale = Math.min(fsScale * 1.1, 2); applyScale();
+      try { localStorage.setItem('fsScale', fsScale); } catch (err) {}
+    } else if (e.key === '-') {
+      fsScale = Math.max(fsScale / 1.1, 0.4); applyScale();
+      try { localStorage.setItem('fsScale', fsScale); } catch (err) {}
+    } else if (e.key === 'c') {
+      fetch('/api/toggle', {method: 'POST'});
+    } else if (e.key === 't') {
+      addCaption('Test: The Lord is my shepherd, I shall not want. Please check that this text is readable from the back row.');
+    }
+  });
+  document.addEventListener('mousemove', () => {
+    document.body.style.cursor = 'default';
+    clearTimeout(window.__cur);
+    window.__cur = setTimeout(() => document.body.style.cursor = 'none', 2000);
+  });
+})();
+</script>
+</body>
+</html>

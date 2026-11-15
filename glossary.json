@@ -1,0 +1,20 @@
+{
+  "asr_prompt": "Predigt, Gemeinde, Jesus Christus, Heiliger Geist, Herr, Gott, Amen, Halleluja, Evangelium, Gnade, Vergebung, Römer, Korinther, Galater, Epheser, Philipper, Offenbarung.",
+
+  "de_fixes": {
+    "Jesus Kristus": "Jesus Christus",
+    "Hallelujah": "Halleluja"
+  },
+
+  "en_fixes": {
+    "Holy Ghost": "Holy Spirit",
+    "Roman's": "Romans"
+  },
+
+  "ignore": [
+    "Untertitel der Amara.org",
+    "Untertitel im Auftrag",
+    "Untertitelung des ZDF",
+    "Vielen Dank fürs Zuschauen"
+  ]
+}

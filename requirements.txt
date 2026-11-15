@@ -1,0 +1,14 @@
+# Pins chosen for an Intel Mac (2019 MacBook Pro): PyTorch stopped publishing
+# Intel-macOS wheels after 2.2.2, and that version needs numpy < 2.
+# On a Linux/Windows GPU PC or an Apple Silicon Mac you can drop the pins.
+numpy<2
+torch==2.2.2
+torchaudio==2.2.2
+transformers==4.44.2
+sentencepiece
+sacremoses
+faster-whisper
+silero-vad
+sounddevice
+fastapi
+uvicorn[standard]

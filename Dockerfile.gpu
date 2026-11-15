@@ -1,0 +1,18 @@
+# NVIDIA GPU image: for the Linux PC with the GPU (needs nvidia-container-toolkit on the host).
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-pip libportaudio2 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN pip3 install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+COPY requirements-docker.txt .
+RUN pip3 install -r requirements-docker.txt
+
+COPY server.py glossary.json ./
+COPY static ./static
+
+EXPOSE 8000
+CMD ["python3", "server.py", "--host", "0.0.0.0", "--device", "cuda", "--model", "large-v3-turbo"]
