@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Local web server for the live German transcript page."""
+"""Local web server: live German (left) and English translation (right)."""
+import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")   # must run before any library loads
+
 import argparse
 import asyncio
 import json
 import pathlib
-import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -12,8 +14,6 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from transcription import Pipeline
 
-import os
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 ROOT = pathlib.Path(__file__).parent
 ARGS = None
 LOOP = None
@@ -43,9 +43,16 @@ def set_status(status, text=""):
     emit({"type": "status", "state": status, "text": text})
 
 
-def publish_caption(german, english):
+def publish_german(seg_id, german, final):
+    """German text as soon as it is recognized (final=False: a preview that may still change)."""
     if not STATE["paused"]:
-        emit({"type": "caption", "de": german, "en": english})
+        emit({"type": "german", "id": seg_id, "de": german, "final": final})
+
+
+def publish_caption(seg_id, german, english):
+    """English translation for the segment with this id."""
+    if not STATE["paused"]:
+        emit({"type": "english", "id": seg_id, "en": english})
 
 
 @asynccontextmanager
@@ -67,7 +74,7 @@ async def index():
 
 @app.get("/overlay")
 async def overlay():
-    return RedirectResponse("/?overlay=1")
+    return RedirectResponse("/?overlay=1")      # English only, transparent, for OBS
 
 
 @app.post("/api/start")
@@ -79,7 +86,7 @@ async def start_transcription():
         return {"state": STATE["status"]}
 
     set_status("loading", "Loading Whisper model…")
-    PIPE = Pipeline(ARGS, publish_caption, set_status)
+    PIPE = Pipeline(ARGS, publish_caption, set_status, publish_german)
     PIPE.start()
     return {"state": "loading"}
 
@@ -126,8 +133,12 @@ def parse_args():
     parser.add_argument("--input", type=int, default=None, help="audio input device index")
     parser.add_argument("--file", default=None, help="transcribe a recording instead of using the mic")
     parser.add_argument("--speed", type=float, default=1.0, help="playback speed for --file")
-    parser.add_argument("--silence-ms", type=int, default=400, help="pause length that ends a segment")
+    parser.add_argument("--silence-ms", type=int, default=900, help="pause length that ends a segment")
     parser.add_argument("--max-seg", type=float, default=5.0, help="force a cut after this many seconds")
+    parser.add_argument("--partials", action="store_true",
+                        help="show German while the speaker is still talking (uses more CPU)")
+    parser.add_argument("--partial-s", type=float, default=1.0,
+                        help="seconds between German previews (with --partials)")
     parser.add_argument("--save-audio", action="store_true", help="store segments as wav in logs/audio")
     parser.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to allow other devices")
     parser.add_argument("--port", type=int, default=8000)

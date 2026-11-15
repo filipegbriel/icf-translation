@@ -1,4 +1,10 @@
-"""Microphone/file audio capture, speech detection, and German transcription."""
+"""Microphone/file audio capture, speech detection, and German transcription.
+
+Two messages per spoken segment:
+  1. German text, sent as soon as Whisper finishes (and, with --partials, a
+     growing preview while the speaker is still talking);
+  2. the English translation, sent when it is ready.
+"""
 import collections
 import datetime
 import json
@@ -91,14 +97,20 @@ def file_source(path, speed, stop):
 
 
 class Pipeline:
-    def __init__(self, args, on_caption, on_status):
+    def __init__(self, args, on_caption, on_status, on_german=None):
+        """on_german(seg_id, text, final) is called as soon as German text exists;
+        on_caption(seg_id, german, english) when the translation is ready."""
         self.args = args
         self.on_caption = on_caption
         self.on_status = on_status
+        self.on_german = on_german or (lambda seg_id, text, final: None)
         self.segments = queue.Queue()
         self.stop = threading.Event()
+        self.busy = threading.Event()       # set while the ASR worker is working
         self.thread = None
         self.asr_thread = None
+        self.run_id = int(time.time())      # makes ids unique across restarts
+        self._counter = 0
 
     @property
     def is_running(self):
@@ -110,6 +122,10 @@ class Pipeline:
 
     def shutdown(self):
         self.stop.set()
+
+    def _new_id(self):
+        self._counter += 1
+        return f"{self.run_id}-{self._counter}"
 
     def _run(self):
         failed = False
@@ -150,6 +166,7 @@ class Pipeline:
         print(f"Loading Whisper '{args.model}' ({args.device}, {args.compute})…")
         self.asr = WhisperModel(args.model, device=args.device, compute_type=args.compute)
 
+    # ---- stage 1: voice activity detection -> speech segments
     def _vad_loop(self, source):
         import torch
         from silero_vad import VADIterator, load_silero_vad
@@ -157,60 +174,94 @@ class Pipeline:
         vad = VADIterator(load_silero_vad(), threshold=0.5, sampling_rate=SR,
                           min_silence_duration_ms=self.args.silence_ms, speech_pad_ms=100)
         preroll = collections.deque(maxlen=10)
-        buffer, active = [], False
+        partial_blocks = max(1, int(self.args.partial_s * SR / BLOCK))
+        buffer, active, seg_id, since_partial = [], False, None, 0
         for block in source:
             if self.stop.is_set():
                 break
             event = vad(torch.from_numpy(block), return_seconds=False)
             if event and "start" in event:
-                active, buffer = True, list(preroll)
+                active, buffer, seg_id, since_partial = True, list(preroll), self._new_id(), 0
             if active:
                 buffer.append(block)
+                since_partial += 1
                 ended = bool(event and "end" in event)
                 too_long = len(buffer) * BLOCK / SR >= self.args.max_seg
                 if ended or too_long:
-                    self._flush(buffer)
-                    buffer, active = [], False
+                    self._flush(buffer, seg_id)
+                    buffer, active, seg_id = [], False, None
                     if too_long and not ended:
                         vad.reset_states()
+                elif self.args.partials and since_partial >= partial_blocks:
+                    since_partial = 0
+                    self._offer_partial(buffer, seg_id)
             else:
                 preroll.append(block)
         if active and buffer:
-            self._flush(buffer)
+            self._flush(buffer, seg_id)
 
-    def _flush(self, blocks):
+    def _offer_partial(self, blocks, seg_id):
+        """A preview of the running segment. Only queued when the worker is idle,
+        so previews never delay the real transcription."""
+        if self.segments.empty() and not self.busy.is_set():
+            self.segments.put(("partial", seg_id, np.concatenate(blocks), None))
+
+    def _flush(self, blocks, seg_id):
         audio = np.concatenate(blocks)
         if len(audio) / SR < MIN_SEG_S:
+            self.on_german(seg_id, "", True)     # remove any preview of this segment
             return
         if self.segments.qsize() >= 3:
             print("WARNING: transcription is falling behind real time. "
                   "Use a smaller model or a GPU.", file=sys.stderr)
-        self.segments.put((audio, time.time()))
+        self.segments.put(("final", seg_id, audio, time.time()))
 
+    # ---- stage 2: German ASR (instant) -> English translation (when ready)
     def _asr_loop(self):
         while True:
             item = self.segments.get()
             if item is None:
                 return
-            audio, captured_at = item
+            kind, seg_id, audio, captured_at = item
+            self.busy.set()
             try:
-                self._process(audio, captured_at)
+                if kind == "partial":
+                    self._process_partial(seg_id, audio)
+                else:
+                    self._process(seg_id, audio, captured_at)
             except Exception as error:
                 print(f"Processing error: {error}", file=sys.stderr)
+            finally:
+                self.busy.clear()
 
-    def _process(self, audio, captured_at):
-        glossary = load_glossary()
-        started_at = time.time()
+    def _transcribe(self, audio, glossary):
         segments, _ = self.asr.transcribe(
             audio, language="de", beam_size=self.args.beam, vad_filter=False,
             condition_on_previous_text=False, temperature=0.0)
         segments = [segment for segment in segments if segment.no_speech_prob < 0.9]
-        asr_seconds = time.time() - started_at
-
         german = re.sub(r"\s+", " ", " ".join(s.text.strip() for s in segments)).strip()
         if not german or any(bad.lower() in german.lower() for bad in glossary["ignore"]):
+            return ""
+        return apply_fixes(german, glossary["de_fixes"])
+
+    def _process_partial(self, seg_id, audio):
+        if not self.segments.empty():      # a final is waiting; it will replace this preview
             return
-        german = apply_fixes(german, glossary["de_fixes"])
+        german = self._transcribe(audio, load_glossary())
+        if german:
+            self.on_german(seg_id, german, False)
+
+    def _process(self, seg_id, audio, captured_at):
+        glossary = load_glossary()
+        started_at = time.time()
+        german = self._transcribe(audio, glossary)
+        asr_seconds = time.time() - started_at
+        if not german:
+            self.on_german(seg_id, "", True)
+            return
+
+        german_delay = time.time() - captured_at
+        self.on_german(seg_id, german, True)          # German appears now
 
         translation_started = time.time()
         english = self.translator.translate(german)
@@ -220,9 +271,10 @@ class Pipeline:
         latency = time.time() - captured_at
         duration = len(audio) / SR
         print(f"[{now:%H:%M:%S}] audio {duration:.1f}s | asr {asr_seconds:.1f}s | "
-              f"translation {translation_seconds:.1f}s | delay after speech {latency:.1f}s\n"
+              f"translation {translation_seconds:.1f}s | German after {german_delay:.1f}s | "
+              f"English after {latency:.1f}s\n"
               f"  DE: {german}\n  EN: {english}")
-        self.on_caption(german, english)
+        self.on_caption(seg_id, german, english)      # English fills in on the right
 
         LOGS.mkdir(exist_ok=True)
         with open(LOGS / f"{now:%Y-%m-%d}.jsonl", "a", encoding="utf-8") as log_file:
@@ -230,6 +282,7 @@ class Pipeline:
                 "ts": now.isoformat(timespec="seconds"), "de": german, "en": english,
                 "audio_s": round(duration, 2), "asr_s": round(asr_seconds, 2),
                 "translation_s": round(translation_seconds, 2),
+                "german_delay_s": round(german_delay, 2),
                 "delay_s": round(latency, 2)}, ensure_ascii=False) + "\n")
         if self.args.save_audio:
             save_wav(LOGS / "audio" / f"{now:%Y-%m-%d_%H-%M-%S}.wav", audio)

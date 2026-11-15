@@ -3,223 +3,237 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>German-English Captions</title>
+<title>Live captions: Deutsch / English</title>
 <style>
   :root {
     --bg: #000;
-    --fg: #f6f1d3;      /* pale warm yellow: high contrast, easier on the eyes than pure white */
-    --dim: #8d897a;
-    --fs: 7.5vh;        /* caption size; change live with + and - */
+    --en: #f6f1d3;       /* English: pale warm yellow */
+    --de: #cfdbe6;       /* German: cool pale blue-grey, so the two columns are easy to tell apart */
+    --dim: #7d8791;
+    --fs: 5.2vh;         /* English size; German is a bit smaller. + and - change it */
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); cursor: none; }
-  body {
-    font-family: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
-    overflow: hidden;
-  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--en); cursor: none; }
+  body { font-family: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
 
+  #heads {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4vw;
+    padding: 2vh 5vw 0; font-size: 2.2vh; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--dim);
+  }
   #stage {
     position: fixed; inset: 0;
     display: flex; flex-direction: column; justify-content: flex-end;
-    padding: 4vh 6vw;
+    padding: 8vh 5vw 4vh;
     transition: opacity 1.2s ease;
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
-            mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 4vh, #000 28%);
+            mask-image: linear-gradient(to bottom, transparent 4vh, #000 28%);
   }
   #stage.idle { opacity: 0; }
 
-  .cap {
-    margin: 0 0 .4em;
-    display: flex;
-    flex-direction: column;
-    gap: .12em;
-    font-size: var(--fs);
-    line-height: 1.18;
-    font-weight: 600;
-    text-wrap: pretty;
-    opacity: 0;
-    transform: translateY(.3em);
-    transition: opacity .35s ease, transform .25s ease, color .6s ease;
+  .row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4vw;
+    margin: 0 0 .55em;
+    opacity: 0; transform: translateY(.3em);
+    transition: opacity .3s ease, transform .25s ease;
   }
-  .cap.in { opacity: 1; transform: none; }
-  .cap.old { color: var(--dim); }
-  .cap p { margin: 0; }
-  .cap .de { color: var(--dim); font-size: .48em; font-weight: 500; }
-  .cap .en { color: inherit; }
+  .row.in { opacity: 1; transform: none; }
+  .row.old { opacity: .5; }
+  .row.old .en { color: var(--dim); }
 
-  #hud {
-    position: fixed; right: 2vw; bottom: 1.5vh;
-    font-size: 2.2vh; color: var(--dim);
-    max-width: 52vw;
-    text-align: right;
-  }
-  #hud:empty { display: none; }
+  .de, .en { margin: 0; line-height: 1.22; font-weight: 600; text-wrap: pretty; }
+  .de { font-size: calc(var(--fs) * .8); color: var(--de); }
+  .en { font-size: var(--fs); }
+  .de.partial { opacity: .65; }                 /* preview: may still change */
+  .en.pending { color: var(--dim); font-weight: 400; }
 
-  #controls {
-    position: fixed; left: 2vw; bottom: 1.5vh; z-index: 2;
-    display: flex; gap: .6rem; cursor: default;
+  #ctl {
+    position: fixed; left: 2vw; bottom: 1.5vh; z-index: 3;
+    display: none; align-items: center; gap: 1vw;
+    font-size: 2.4vh; color: var(--dim);
   }
-  #controls button {
-    min-width: 9rem; min-height: 2.8rem; padding: .55rem .85rem;
-    border: 1px solid var(--fg); border-radius: 4px;
-    background: var(--fg); color: #111;
-    font: 600 1rem "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
-    cursor: pointer;
+  #ctl.show { display: flex; }
+  #ctl button {
+    font: inherit; color: #fff; background: #2a3138; border: 1px solid #4a535c;
+    border-radius: .4em; padding: .25em .9em; cursor: pointer;
   }
-  #controls #stop { background: transparent; color: var(--fg); }
-  #controls button:disabled { opacity: .48; cursor: not-allowed; }
+  #ctl button:hover { background: #38414a; }
 
-  /* OBS / livestream overlay: /overlay or /?overlay=1 */
+  /* OBS / livestream overlay (/overlay): English only, transparent */
   body.overlay { background: transparent; --fs: 5.2vh; }
-  body.overlay #stage { padding-bottom: 6vh; }
-  body.overlay .cap { text-shadow: 0 0 .15em #000, 0 0 .3em #000, 0 .04em .12em #000; }
-  body.overlay #controls, body.overlay #hud { display: none; }
+  body.overlay #heads, body.overlay .de { display: none; }
+  body.overlay .row { grid-template-columns: 1fr; }
+  body.overlay #stage { padding-bottom: 6vh; padding-top: 4vh; }
+  body.overlay .en { text-shadow: 0 0 .15em #000, 0 0 .3em #000, 0 .04em .12em #000; }
 
-  @media (max-width: 520px) {
-    #controls button { min-width: 0; }
-    #hud { max-width: 48vw; font-size: 3.2vw; }
+  @media (max-width: 800px) {
+    .row, #heads { grid-template-columns: 1fr; gap: .2em; }
+    #heads { display: none; }
   }
-
   @media (prefers-reduced-motion: reduce) {
-    .cap, #stage { transition: none; transform: none; }
+    .row, #stage { transition: none; transform: none; }
   }
 </style>
 </head>
 <body>
+<div id="heads"><div>Deutsch</div><div>English</div></div>
 <div id="stage"></div>
-<div id="hud">Connecting…</div>
-<div id="controls" aria-label="Transcription controls">
-  <button id="start" type="button"><span aria-hidden="true">▶</span> Start listening</button>
-  <button id="stop" type="button" disabled><span aria-hidden="true">■</span> Stop</button>
-</div>
+<div id="ctl"><span id="statusText"></span><button id="startStop" type="button">Start</button></div>
 
 <script>
 (() => {
   const stage = document.getElementById('stage');
-  const hud = document.getElementById('hud');
-  const startButton = document.getElementById('start');
-  const stopButton = document.getElementById('stop');
-  const MAX_LINES = 8;        // caption blocks kept in the page
-  const IDLE_MS = 14000;      // fade everything out after this much silence
-  let paused = false, idleTimer = null, status = {state: 'stopped', text: ''};
+  const ctl = document.getElementById('ctl');
+  const statusText = document.getElementById('statusText');
+  const startStop = document.getElementById('startStop');
+  const params = new URLSearchParams(location.search);
+  const MAX_ROWS = 7;          // caption rows kept on screen
+  const IDLE_MS = 20000;       // fade everything out after this much silence
+  const rows = new Map();      // segment id -> {el, de, en}
+  let paused = false, idleTimer = null, ctlTimer = null, autostarted = false;
+  let status = {state: 'stopped', text: ''};
+  let ws = null;
 
-  if (new URLSearchParams(location.search).has('overlay')) document.body.classList.add('overlay');
+  if (params.has('overlay')) document.body.classList.add('overlay');
 
-  // remembered text size
+  // ---- text size, remembered
   const root = document.documentElement;
-  let fsScale = 1;
-  try { fsScale = parseFloat(localStorage.getItem('fsScale')) || 1; } catch (e) {}
-  const baseFs = () => parseFloat(getComputedStyle(root).getPropertyValue('--fs')) || 7.5;
-  const defaultFs = parseFloat(getComputedStyle(root).getPropertyValue('--fs')) || 7.5;
-  function applyScale() { root.style.setProperty('--fs', (defaultFs * fsScale).toFixed(2) + 'vh'); }
+  const defaultFs = parseFloat(getComputedStyle(root).getPropertyValue('--fs')) || 5.2;
+  let scale = 1;
+  try { scale = parseFloat(localStorage.getItem('fsScale')) || 1; } catch (e) {}
+  const applyScale = () => root.style.setProperty('--fs', (defaultFs * scale).toFixed(2) + 'vh');
   applyScale();
 
-  function setHud() {
-    if (paused) { hud.textContent = ''; return; }
-    if (!ws || ws.readyState !== 1) hud.textContent = 'Reconnecting…';
-    else if (status.state === 'stopped') hud.textContent = 'Stopped';
-    else if (status.state === 'error') hud.textContent = status.text;
-    else hud.textContent = status.text;
-  }
-
-  function setControls() {
-    const connected = ws && ws.readyState === 1;
-    const active = ['loading', 'ready', 'stopping'].includes(status.state);
-    startButton.disabled = !connected || active;
-    stopButton.disabled = !connected || !active;
-  }
-
-  async function requestTranscription(action) {
-    try {
-      const response = await fetch('/api/' + action, {method: 'POST'});
-      if (!response.ok) {
-        const result = await response.json();
-        throw new Error(result.detail || 'Could not ' + action + ' transcription');
-      }
-    } catch (error) {
-      status = {state: 'error', text: error.message};
-      setHud();
-      setControls();
-    }
-  }
-
-  function addCaption(german, english) {
-    if (paused) return;
+  // ---- rows
+  function touch() {
     stage.classList.remove('idle');
-    stage.querySelectorAll('.cap').forEach(el => el.classList.add('old'));
-    const caption = document.createElement('div');
-    caption.className = 'cap';
-    const de = document.createElement('p');
-    de.className = 'de';
-    de.textContent = german;
-    const en = document.createElement('p');
-    en.className = 'en';
-    en.textContent = english;
-    caption.append(de, en);
-    stage.appendChild(caption);
-    requestAnimationFrame(() => requestAnimationFrame(() => caption.classList.add('in')));
-    while (stage.children.length > MAX_LINES) stage.removeChild(stage.firstChild);
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => stage.classList.add('idle'), IDLE_MS);
   }
+  function refreshOld() {
+    const list = [...stage.children];
+    list.forEach((el, i) => el.classList.toggle('old', i < list.length - 2));
+  }
+  function getRow(id) {
+    let r = rows.get(id);
+    if (r) return r;
+    const el = document.createElement('div'); el.className = 'row';
+    const de = document.createElement('p'); de.className = 'de partial';
+    const en = document.createElement('p'); en.className = 'en';
+    el.append(de, en);
+    stage.appendChild(el);
+    r = {el, de, en};
+    rows.set(id, r);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+    while (stage.children.length > MAX_ROWS) {
+      const first = stage.firstChild;
+      for (const [k, v] of rows) if (v.el === first) rows.delete(k);
+      stage.removeChild(first);
+    }
+    refreshOld();
+    return r;
+  }
+  function removeRow(id) {
+    const r = rows.get(id);
+    if (!r) return;
+    const hasEnglish = r.en.textContent.trim() && !r.en.classList.contains('pending');
+    if (!hasEnglish) { r.el.remove(); rows.delete(id); refreshOld(); }
+  }
 
+  function onGerman(m) {
+    if (paused) return;
+    if (m.final && !m.de) { removeRow(m.id); return; }
+    const r = getRow(m.id);
+    r.de.textContent = m.de;
+    r.de.classList.toggle('partial', !m.final);
+    if (m.final && !r.en.textContent) {       // German is final, English is on its way
+      r.en.textContent = '…';
+      r.en.classList.add('pending');
+    }
+    touch();
+  }
+  function onEnglish(m) {
+    if (paused) return;
+    const r = getRow(m.id);
+    r.en.textContent = m.en;
+    r.en.classList.remove('pending');
+    touch();
+  }
   function setPaused(p) {
     paused = p;
     stage.style.visibility = p ? 'hidden' : 'visible';
-    if (p) stage.innerHTML = '';
-    setHud();
+    if (p) { stage.innerHTML = ''; rows.clear(); }
+    showCtl(false);
   }
 
+  // ---- control strip (status + Start/Stop)
+  const running = () => status.state === 'ready' || status.state === 'loading';
+  function renderCtl() {
+    statusText.textContent = (!ws || ws.readyState !== 1) ? 'Reconnecting…' : (status.text || status.state);
+    startStop.textContent = running() ? 'Stop' : 'Start';
+    startStop.disabled = status.state === 'stopping';
+  }
+  function showCtl(temporary) {
+    renderCtl();
+    const mustShow = !paused && (status.state !== 'ready' || !ws || ws.readyState !== 1);
+    ctl.classList.toggle('show', mustShow || temporary);
+    clearTimeout(ctlTimer);
+    if (temporary && !mustShow) ctlTimer = setTimeout(() => ctl.classList.remove('show'), 3000);
+  }
+  async function toggleRun() {
+    try { await fetch(running() ? '/api/stop' : '/api/start', {method: 'POST'}); } catch (e) {}
+  }
+  startStop.addEventListener('click', toggleRun);
+
   // ---- WebSocket with automatic reconnect
-  let ws = null;
   function connect() {
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-    ws.onopen = () => { setHud(); setControls(); };
-    ws.onclose = () => { setHud(); setControls(); setTimeout(connect, 1000); };
+    ws.onopen = () => showCtl(false);
+    ws.onclose = () => { showCtl(false); setTimeout(connect, 1000); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.type === 'caption') addCaption(m.de, m.en);
+      if (m.type === 'german') onGerman(m);
+      else if (m.type === 'english') onEnglish(m);
       else if (m.type === 'pause') setPaused(m.paused);
-      else if (m.type === 'status') { status = m; setHud(); setControls(); }
+      else if (m.type === 'status') {
+        status = m;
+        if (m.state === 'loading') { stage.innerHTML = ''; rows.clear(); }   // new run, clean slate
+        showCtl(false);
+        if (m.state === 'stopped' && params.has('autostart') && !autostarted) {
+          autostarted = true; toggleRun();
+        }
+      }
     };
   }
   connect();
 
-  startButton.addEventListener('click', () => {
-    status = {state: 'loading', text: 'Starting transcription…'};
-    setHud();
-    setControls();
-    requestTranscription('start');
-  });
-  stopButton.addEventListener('click', () => {
-    status = {state: 'stopping', text: 'Stopping transcription…'};
-    setHud();
-    setControls();
-    requestTranscription('stop');
-  });
-
-  // ---- keyboard (operator at the computer)
-  //  f = fullscreen   + / - = text size   c = captions on/off   t = test line
+  // ---- keyboard: f fullscreen, + / - size, c captions on/off, s start/stop, t test line
   document.addEventListener('keydown', (e) => {
     if (e.key === 'f') {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen();
     } else if (e.key === '+' || e.key === '=') {
-      fsScale = Math.min(fsScale * 1.1, 2); applyScale();
-      try { localStorage.setItem('fsScale', fsScale); } catch (err) {}
+      scale = Math.min(scale * 1.1, 2); applyScale();
+      try { localStorage.setItem('fsScale', scale); } catch (err) {}
     } else if (e.key === '-') {
-      fsScale = Math.max(fsScale / 1.1, 0.4); applyScale();
-      try { localStorage.setItem('fsScale', fsScale); } catch (err) {}
+      scale = Math.max(scale / 1.1, 0.4); applyScale();
+      try { localStorage.setItem('fsScale', scale); } catch (err) {}
     } else if (e.key === 'c') {
       fetch('/api/toggle', {method: 'POST'});
+    } else if (e.key === 's') {
+      toggleRun();
     } else if (e.key === 't') {
-      addCaption('Der Herr ist mein Hirte.', 'The Lord is my shepherd.');
+      const id = 'test-' + Date.now();
+      onGerman({id, de: 'Der Herr ist mein Hirte, mir wird nichts mangeln.', final: true});
+      setTimeout(() => onEnglish({id, en: 'The Lord is my shepherd, I shall not want.'}), 1200);
     }
   });
   document.addEventListener('mousemove', () => {
     document.body.style.cursor = 'default';
     clearTimeout(window.__cur);
     window.__cur = setTimeout(() => document.body.style.cursor = 'none', 2000);
+    showCtl(true);
   });
 })();
 </script>
